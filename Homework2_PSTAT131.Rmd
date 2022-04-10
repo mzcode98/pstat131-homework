@@ -1,0 +1,134 @@
+---
+title: "PSTAT 131 Homework 2"
+author: "Matthew Zhang"
+date: "Spring 2022"
+output:
+  pdf_document: default
+  html_document: default
+---
+\newpage
+
+## Linear Regression
+
+```{r, eval = TRUE}
+library(tidyverse)
+library(tidymodels)
+library(ISLR)
+library(ggplot2)
+
+df <- read_csv('./data/abalone.csv')
+```
+
+
+### Question 1
+
+Your goal is to predict abalone age, which is calculated as the number of rings plus 1.5. Notice there currently is no `age` variable in the data set. Add `age` to the data set.
+
+```{r, eval = TRUE}
+df['age'] <- df['rings'] + 1.5
+df
+```
+
+Assess and describe the distribution of `age`.
+
+```{r, eval = TRUE}
+df %>% 
+  ggplot(aes(x = age)) +
+  geom_histogram(bins = 30) +
+  theme_bw()
+```
+
+After creating the column 'age' based on the number of rings an abalone has plus 1.5, we can note that the distribution is similarly distributed to the 'rings' column. After adjusting the bin size, we can observe that the distribution is approximately normal with a slight tail on the right. Furthermore, a large number of observations have an age around 9-13. 
+
+### Question 2
+
+Split the abalone data into a training set and a testing set. Use stratified sampling. You should decide on appropriate percentages for splitting the data.
+
+```{r, eval = TRUE}
+set.seed(3435)
+
+abalone_split <- initial_split(df, prop = 0.80,
+                                strata = age)
+abalone_train <- training(abalone_split)
+abalone_test <- testing(abalone_split)
+```
+
+### Question 3
+
+```{r, eval = TRUE}
+?tidymodels
+abalone_train2 = subset(abalone_train, select = -c(rings))
+abalone_test2 = subset(abalone_test, select = -c(rings))
+```
+Once we have removed the rings column to remove multi-collinearity, we create a recipe for the model. Following the steps, we want to turn categorical predictors into dummy variables; center and scale all predictors.
+
+```{r, eval = TRUE}
+abalone_recipe <- recipe(age ~ ., data = abalone_train2) %>% 
+  step_dummy(all_nominal_predictors()) %>% 
+  step_interact(terms = ~ type:shucked_weight) %>% 
+  step_interact(terms = ~ longest_shell:diameter) %>% 
+  step_interact(terms = ~ shucked_weight:shell_weight) %>% 
+  step_normalize(all_nominal_predictors())
+abalone_recipe
+```
+We should not include 'rings' to predict 'age' because the column 'age' is derived completely from rings and it would increase noise within the model. Age was made from simply adding 1.5 to rings which means they are highly correlated and it would not help improve the accuracy of our model. 
+
+### Question 4
+
+```{r, eval = TRUE}
+lm_model_abalone <- linear_reg() %>% 
+  set_engine("lm")
+
+#similar to code in lab2
+```
+
+### Question 5
+
+```{r, eval = TRUE}
+lm_wf_abalone <- workflow() %>% 
+  add_model(lm_model_abalone) %>% 
+  add_recipe(abalone_recipe)
+
+#similar to code in lab2
+lm_fit <- fit(lm_wf_abalone, abalone_train2)
+lm_fit %>% 
+  # This returns the parsnip object:
+  extract_fit_parsnip() %>% 
+  # Now tidy the linear model object:
+  tidy()
+```
+
+### Question 6
+
+```{r, eval = TRUE}
+female_abalone <- data.frame(type = "F",longest_shell = 0.50, diameter = 0.10, height = 0.30, whole_weight = 4, shucked_weight = 1, viscera_weight = 2, shell_weight = 1)
+
+lm_fit_abalone <- fit(lm_wf_abalone, abalone_train2)
+lm_fit_abalone %>% extract_fit_parsnip() %>% 
+  tidy()
+res <- predict(lm_fit_abalone, new_data = female_abalone)
+res %>% head()
+```
+
+### Question 7
+
+```{r}
+abalone_train_res <- predict(lm_fit_abalone, new_data = abalone_train2)
+abalone_train_res
+```
+
+```{r}
+abalone_train_res <- bind_cols(abalone_train_res, abalone_train2 %>% select(age))
+abalone_train_res %>% head()
+```
+
+```{r}
+rmse(abalone_train_res, truth = age, estimate = .pred)
+```
+
+```{r}
+abalone_metrics <- metric_set(rmse, rsq, mae)
+abalone_metrics(abalone_train_res, truth = age, estimate = .pred)
+```
+
+The R-Squared can be interpreted as the proportion of variance explained by the model when using independent variables to predict a dependent variable. In other words, the model explaining a certain percent of variation. Since the R-squared value is 0.5464661, this is interpreted as the model accounting for 54.64661% of the variation in abalone ages.
